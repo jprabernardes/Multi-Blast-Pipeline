@@ -1,4 +1,4 @@
-# 🔬 BLAST OTU Pipeline
+# 🔬 BLAST Sequences Pipeline
 
 This repository contains a complete and automated Python pipeline to:
 
@@ -53,7 +53,7 @@ Entrez.email = "your_email@example.com"
 python blast_pipeline.py
 ```
 
-Make sure your input file (e.g., `OTU-TESTE.fasta`) is located in the same folder or properly referenced.
+Make sure your input file (e.g., `example.fasta`) is located in the same folder or properly referenced.
 
 ---
 
