@@ -1,4 +1,4 @@
-# 🔬 BLAST Sequences Pipeline
+# 🔬 Multi BLAST Pipeline
 
 This repository contains a complete and automated Python pipeline to:
 
