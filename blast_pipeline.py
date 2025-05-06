@@ -126,7 +126,7 @@ blast_cmd = [
 
 try:
     # Introduce a delay to comply with NCBI's rules
-    time.sleep(1)  # Delay of 1 second between requests (adjust if you have an API key)
+    time.sleep(1)  # Delay between requests to comply with NCBI rules (default: 1 second; with API key: 0.1 seconds)
 
     subprocess.run(blast_cmd, check=True)
     elapsed_time = time.time() - start_time
