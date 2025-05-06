@@ -5,6 +5,7 @@ import time
 import sys
 from Bio import SeqIO, Entrez
 from Bio.Seq import Seq
+import os
 try:
     from tqdm import tqdm
 except ImportError:
@@ -16,14 +17,18 @@ except ImportError:
 # === IMPORTANT: CONFIGURATION ==============================
 # ============================================================
 
+# Get the directory of the script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Input/output files
-input_fasta = "example/example.fasta" # Path to your input FASTA file
-cleaned_fasta = "Sequence_Blasted_clean.fasta"
-blast_output = "blast_remote.tsv" # Output file for BLAST results
-excel_output = "blast_hits_remote.xlsx" # Output file for Excel results
+input_fasta = os.path.join(script_dir, "example/example.fasta")  # Path to your input FASTA file
+cleaned_fasta = os.path.join(script_dir, "Sequence_Blasted_clean.fasta")
+blast_output = os.path.join(script_dir, "blast_remote.tsv")  # Output file for BLAST results
+excel_output = os.path.join(script_dir, "blast_hits_remote.xlsx")  # Output file for Excel results
+blast_sequences = os.path.join(script_dir, "blast_hit_sequences.fasta")  # File to save the sequences of the hits
 database = "nt"  # you can change to 'refseq_rna' or another available
-evalue_cutoff = 1e-20 # E-value cutoff for BLAST
-num_hits = 5 # Maximum number of hits to retrieve
+evalue_cutoff = 1e-20  # E-value cutoff for BLAST
+num_hits = 5  # Maximum number of hits to retrieve
 
 # === IMPORTANT: EMAIL CONFIGURATION FOR NCBI ===
 # You MUST configure a valid email address below
@@ -34,9 +39,6 @@ Entrez.email = "example@example.com"  # Email configured for use with NCBI
 # OPTIONAL: If you have an NCBI API key, uncomment and configure below
 # An API key allows more requests per second
 # Entrez.api_key = "your_api_key_here"
-
-# File to save the sequences of the hits
-blast_sequences = "blast_hit_sequences.fasta"
 
 # Function to format estimated time
 def format_time(seconds):
@@ -87,7 +89,7 @@ def monitor_blast_progress():
                 current_size = os.path.getsize(blast_output)
             except:
                 pass
-                
+
             if current_size > last_size:
                 # File is growing, BLAST is working
                 progress = f"📊 Receiving BLAST data: {current_size/1024:.1f} KB downloaded"
@@ -97,21 +99,20 @@ def monitor_blast_progress():
                 # No update, just show it's working
                 dots = (dots % 3) + 1
                 print(f"\r🚀 BLAST running{'.' * dots}{' ' * 30}", end="")
-            
+
             time.sleep(2)
         except KeyboardInterrupt:
             return
 
 # Import threading for background monitoring
 import threading
-import os
 
 # Start a thread to show progress
 progress_thread = threading.Thread(target=monitor_blast_progress)
 progress_thread.daemon = True
 progress_thread.start()
 
-# Run BLAST
+# Run BLAST with a delay between requests
 blast_cmd = [
     "blastn",
     "-query", cleaned_fasta,
@@ -124,29 +125,33 @@ blast_cmd = [
 ]
 
 try:
+    # Introduce a delay to comply with NCBI's rules
+    time.sleep(1)  # Delay of 1 second between requests (adjust if you have an API key)
+
     subprocess.run(blast_cmd, check=True)
     elapsed_time = time.time() - start_time
     print(f"\n✅ BLAST completed in {format_time(elapsed_time)}")
-    
+
     # Check the size of the results file
     result_size = os.path.getsize(blast_output)
     print(f"📄 Results file: {blast_output} ({result_size/1024:.1f} KB)")
 except subprocess.CalledProcessError as e:
     print(f"\n❌ Error running BLAST: {e}")
     sys.exit(1)
+
 # === 3. Process output to Excel
 print(f"\n📋 STEP 3: Processing BLAST results")
 
 try:
     columns = ["Sequence-Blasted", "Accession", "Identity (%)", "Alignment Length", "E-value", "Bit Score", "SeqID", "Definition"]
     df = pd.read_csv(blast_output, sep="\t", names=columns)
-    
+
     # Count results
     num_hits_found = len(df)
     num_sequence_blasted_with_hits = df["Sequence-Blasted"].nunique()
-    
+
     print(f"📊 Found {num_hits_found} BLAST hits for {num_sequence_blasted_with_hits} the Sequence Blasted")
-    
+
     # === 4. Save as Excel
     print(f"💾 Saving results to Excel...")
     df.to_excel(excel_output, index=False)
@@ -163,7 +168,7 @@ try:
     accessions = df["Accession"].unique().tolist()
     total_accessions = len(accessions)
     print(f"🔍 Found {total_accessions} unique accessions to retrieve")
-    
+
     # Function to split list into chunks for batch processing
     def chunks(lst, n):
         """Split a list into chunks of size n"""
@@ -173,7 +178,7 @@ try:
     batch_size = 10
     sequences_retrieved = 0
     sequences_failed = 0
-    
+
     # Create progress bar for the total process
     with tqdm(total=total_accessions, desc="Total progress", unit="seq") as main_pbar:
         # Save the sequences in FASTA format
@@ -184,32 +189,32 @@ try:
                 try:
                     # Show information about the current batch
                     tqdm.write(f"📦 Batch {i+1}/{-(-total_accessions//batch_size)}: Fetching {len(batch)} sequences...")
-                    
+
                     # Fetch the sequences in batch
                     handle = Entrez.efetch(db="nucleotide", id=batch_str, rettype="fasta", retmode="text")
                     records = list(SeqIO.parse(handle, "fasta"))
                     handle.close()
-                    
+
                     # Save sequences
                     for record in records:
                         SeqIO.write(record, output_handle, "fasta")
-                    
+
                     # Update counters
                     sequences_retrieved += len(records)
                     main_pbar.update(len(batch))
-                    
+
                     if len(records) < len(batch):
                         missing = len(batch) - len(records)
                         sequences_failed += missing
                         tqdm.write(f"⚠️  Warning: {missing} sequences were not found in this batch")
-                    
+
                     # Respect the usage limits of the NCBI API
                     time.sleep(1)  # Wait 1 second between requests
                 except Exception as e:
                     tqdm.write(f"⚠️ Error retrieving sequences: {e}")
                     sequences_failed += len(batch)
                     main_pbar.update(len(batch))
-                    
+
                     # Retry after waiting a bit longer
                     tqdm.write("🔄 Retrying after pause...")
                     time.sleep(5)
@@ -217,17 +222,17 @@ try:
                         handle = Entrez.efetch(db="nucleotide", id=batch_str, rettype="fasta", retmode="text")
                         records = list(SeqIO.parse(handle, "fasta"))
                         handle.close()
-                        
+
                         # Save sequences retrieved on the second attempt
                         for record in records:
                             SeqIO.write(record, output_handle, "fasta")
-                        
+
                         # Update counters (correct the failure counter)
                         sequences_retrieved += len(records)
                         sequences_failed -= len(records)
                     except Exception as e:
                         tqdm.write(f"❌ Permanent failure retrieving batch: {e}")
-    
+
     # Final report
     success_rate = (sequences_retrieved / total_accessions) * 100 if total_accessions > 0 else 0
     print(f"\n✅ BLAST hit sequences saved in {blast_sequences}")
